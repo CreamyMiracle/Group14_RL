@@ -11,6 +11,36 @@ from gym.utils import seeding
 import numpy as np
 
 
+class Obstacle:
+    """
+    Description:
+        An obstacles that causes heavy penalties when hit by the
+        cartpole pole
+    """
+    def __init__(self, left, right, top, bottom):
+        self.left = left
+        self.right = right
+        self.top = top
+        self.bottom = bottom
+        self.color = [1.0, 0.0, 0.0]
+
+    def set_color(self, r, g, b):
+        self.color = [r, g, b]
+
+    def get_geom(self):
+        from gym.envs.classic_control import rendering
+        obstacle = rendering.FilledPolygon([(self.left, self.bottom), (self.left, self.top), 
+        (self.right, self.top), (self.right, self.bottom)])
+        obstacle.set_color(self.color[0], self.color[1], self.color[2])
+        return obstacle
+
+    def hit(self, point):
+        x, y = point
+        if (x < self.right and x > self.left):
+            if (y < self.top and y > self.bottom):
+                return True
+        return False
+
 class CartPoleEnv(gym.Env):
     """
     Description:
@@ -89,7 +119,7 @@ class CartPoleEnv(gym.Env):
         self.steps_beyond_done = None
         
         # Pole starting position 0 = up, 1 = down
-        self.starting_position = 0 
+        self.starting_position = 1 
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -152,7 +182,7 @@ class CartPoleEnv(gym.Env):
     def reset(self):
         self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
         if (self.starting_position == 1): # down
-            self.state[2] = self.state[2] + np.pi/2
+            self.state[2] = self.state[2] + np.pi
         self.steps_beyond_done = None
         return np.array(self.state)
 
@@ -194,6 +224,12 @@ class CartPoleEnv(gym.Env):
             self.viewer.add_geom(self.track)
 
             self._pole_geom = pole
+
+            """
+            # Add obstacles this way
+            obstacle = Obstacle(20, 80, 80, 20)
+            self.viewer.add_geom(obstacle.get_geom())
+            """
 
         if self.state is None:
             return None
