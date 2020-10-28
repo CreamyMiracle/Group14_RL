@@ -10,36 +10,8 @@ from gym import spaces, logger
 from gym.utils import seeding
 import numpy as np
 
-
-class Obstacle:
-    """
-    Description:
-        An obstacles that causes heavy penalties when hit by the
-        cartpole pole
-    """
-    def __init__(self, left, right, top, bottom):
-        self.left = left
-        self.right = right
-        self.top = top
-        self.bottom = bottom
-        self.color = [1.0, 0.0, 0.0]
-
-    def set_color(self, r, g, b):
-        self.color = [r, g, b]
-
-    def get_geom(self):
-        from gym.envs.classic_control import rendering
-        obstacle = rendering.FilledPolygon([(self.left, self.bottom), (self.left, self.top), 
-        (self.right, self.top), (self.right, self.bottom)])
-        obstacle.set_color(self.color[0], self.color[1], self.color[2])
-        return obstacle
-
-    def hit(self, point):
-        x, y = point
-        if (x < self.right and x > self.left):
-            if (y < self.top and y > self.bottom):
-                return True
-        return False
+theta_reward_treshold_deg = 12
+theta_treshold_deg = 360 # 360 is the whole circle
 
 class CartPoleEnv(gym.Env):
     """
@@ -68,7 +40,8 @@ class CartPoleEnv(gym.Env):
         the center of gravity of the pole increases the amount of energy needed
         to move the cart underneath it
     Reward:
-        Reward is 1 for every step taken, including the termination step
+        1st model: Reward is 1 for every step taken, including the termination step
+        2nd model: Reward is determined by angle of the pole further from straight equals bad
     Starting State:
         All observations are assigned a uniform random value in [-0.05..0.05]
     Episode Termination:
@@ -93,12 +66,12 @@ class CartPoleEnv(gym.Env):
         self.total_mass = (self.masspole + self.masscart)
         self.length = 0.5  # actually half the pole's length
         self.polemass_length = (self.masspole * self.length)
-        self.force_mag = 10.0
+        self.force_mag = 30.0
         self.tau = 0.02  # seconds between state updates
         self.kinematics_integrator = 'euler'
 
         # Angle at which to fail the episode
-        self.theta_threshold_radians = 12 * 2 * math.pi / 360
+        self.theta_threshold_radians = theta_treshold_deg * 2 * math.pi / 360
         self.x_threshold = 2.4
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
@@ -118,14 +91,111 @@ class CartPoleEnv(gym.Env):
 
         self.steps_beyond_done = None
         
+        self.reward_range = (-float('inf'), float('inf'))
+        self.max_steps = 10000
+
         # Pole starting position 0 = up, 1 = down
-        self.starting_position = 1 
+        self.starting_position = 1
+
+        # Reward model 0 = one or zero, 1 = pole angle based, 2 / 3 = test
+        self.reward_model = 7
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def step(self, action):
+    def reward(self, done):
+        reward = 0.0
+        if not done or self.steps_beyond_done is None:
+            if self.steps_beyond_done is None:                
+                self.steps_beyond_done = 0
+
+            # Default
+            if self.reward_model == 0:
+                reward = 1.0
+
+            # Pole angle based
+            elif self.reward_model == 1: 
+                theta = self.state[2]
+                x = self.state[0]
+                theta_reward_treshold_rad =  theta_reward_treshold_deg * 2 * math.pi / 360
+                #reward = (theta_reward_treshold_rad - theta) * 100 #- np.power(10, np.abs(x))
+                theta_diff = np.abs(np.pi - theta)
+                reward = 0
+                if theta_diff < theta_reward_treshold_rad:
+                    reward += 10.0 / theta_diff
+                reward /= np.abs(x)
+            
+            # Testing: works when starting from top
+            elif self.reward_model == 2: 
+                theta_diff = np.abs(self.state[2])
+                reward = np.abs(np.cos(theta_diff) * 2.0 * self.length)
+                if (theta_diff > np.pi / 2.0):
+                    reward = -reward
+
+            # Quite good intuitive solutions but sometimes get stuck wiggling down low
+            elif self.reward_model == 3: 
+                theta_diff = np.abs(self.state[2])
+                reward = np.abs(np.cos(theta_diff) * 2.0 * self.length)
+                if (theta_diff > np.pi / 2.0):                    
+                    reward = 0.0
+
+            
+            # Harder penalty test
+            elif self.reward_model == 4: 
+                theta_diff = np.abs(self.state[2])
+                reward = np.abs(np.cos(theta_diff) * 2.0 * self.length)
+
+                # Being down is bad
+                if (theta_diff > np.pi / 2.0):                    
+                    reward = -0.05
+                # Being too far from center is worse    
+                elif (np.abs(self.state[0]) > 0.8 * self.x_threshold):                    
+                    reward = -0.1
+                # Being upward is really good             
+                elif (theta_diff < self.theta_threshold_radians):                    
+                    reward = 1.0            
+
+
+            # Based on number 3
+            elif self.reward_model == 5: 
+                theta_diff = np.abs(self.state[2])
+                reward = np.abs(np.cos(theta_diff) * 2.0 * self.length)
+                if (theta_diff > np.pi / 2.0):                    
+                    reward = -0.1
+
+                    
+            # Based on number 3
+            elif self.reward_model == 6: 
+                theta_diff = np.abs(self.state[2])
+                reward = np.abs(np.cos(theta_diff) * 2.0 * self.length)
+                if (theta_diff > np.pi / 2.0):                    
+                    reward = -reward / self.state[3] # High angular velocity is good
+                else:
+                    reward = reward / self.state[3] # Low angular velocity is good
+                    
+            # Test
+            elif self.reward_model == 7: 
+                theta_diff = np.abs(self.state[2])
+                reward = 1.0 / np.abs(self.state[3])
+                if (theta_diff > np.pi / 2.0):                    
+                    reward = -0.01
+
+        else:
+            if self.steps_beyond_done == 0:
+                """
+                logger.warn(
+                "You are calling 'step()' even though this "
+                "environment has already returned done = True. You "
+                "should always call 'reset()' once you receive 'done = "
+                "True' -- any further steps are undefined behavior.")
+                """
+            self.steps_beyond_done += 1
+            reward = 0.0
+
+        return reward
+
+    def step(self, action, n = 0):
         err_msg = "%r (%s) invalid" % (action, type(action))
         assert self.action_space.contains(action), err_msg
         
@@ -156,27 +226,12 @@ class CartPoleEnv(gym.Env):
         done = bool(
             x < -self.x_threshold
             or x > self.x_threshold
-            or theta < -self.theta_threshold_radians
-            or theta > self.theta_threshold_radians
+            #or n > self.max_steps
+            #or theta < -self.theta_threshold_radians
+            #or theta > self.theta_threshold_radians
         )
 
-        if not done:
-            reward = 1.0
-        elif self.steps_beyond_done is None:
-            # Pole just fell!
-            self.steps_beyond_done = 0
-            reward = 1.0
-        else:
-            if self.steps_beyond_done == 0:
-                logger.warn(
-                    "You are calling 'step()' even though this "
-                    "environment has already returned done = True. You "
-                    "should always call 'reset()' once you receive 'done = "
-                    "True' -- any further steps are undefined behavior."
-                )
-            self.steps_beyond_done += 1
-            reward = 0.0
-
+        reward = self.reward(done)
         return np.array(self.state), reward, done, {}
 
     def reset(self):
@@ -249,17 +304,4 @@ class CartPoleEnv(gym.Env):
     def close(self):
         if self.viewer:
             self.viewer.close()
-            self.viewer = None
-            
-            
-Env = CartPoleEnv()
-Env.reset()
-for i in range(1000):
-    Env.render()
-    action = 1
-    if Env.state[2] < 0 and Env.state[3] < 0 and Env.state[1] > 0:
-        action = 0
-    Env.step(action)
-Env.close()    
-       
-        
+            self.viewer = None        
