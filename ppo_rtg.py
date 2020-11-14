@@ -1,7 +1,3 @@
-'''
-This file is based on https://github.com/openai/spinningup/blob/master/spinup/examples/pytorch/pg_math/1_simple_pg.py
-'''
-
 import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
@@ -19,14 +15,19 @@ def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):
         layers += [nn.Linear(sizes[j], sizes[j+1]), act()]
     return nn.Sequential(*layers)
 
+def reward_to_go(rews):
+    n = len(rews)
+    rtgs = np.zeros_like(rews)
+    for i in reversed(range(n)):
+        rtgs[i] = rews[i] + (rtgs[i+1] if i+1 < n else 0)
+    return rtgs
 
+def train(env_name='CartPole-v0', hidden_sizes=[32], lr=1e-2, 
+          epochs=50, batch_size=5000, render=False):
 
-def train(env_name='CartPole-v0', hidden_sizes=[8], lr=0.005, 
-        epochs=2000, batch_size=1000, render=True, render_treshold=0.9):
     # make environment, check spaces, get obs / act dims
-    env = CartPoleEnv() # max_step_limit_on
-    env.max_step_limit_on = True
-    env.max_steps = 200
+    #env = CartPoleEnv()
+    env = gym.make(env_name)
 
     assert isinstance(env.observation_space, Box), \
         "This example only works for envs with continuous state spaces."
@@ -39,29 +40,29 @@ def train(env_name='CartPole-v0', hidden_sizes=[8], lr=0.005,
     # make core of policy network
     logits_net = mlp(sizes=[obs_dim]+hidden_sizes+[n_acts])
 
-    # make optimizer
-    optimizer = Adam(logits_net.parameters(), lr=lr)
-        
-    # function to compute action distribution
+    # make function to compute action distribution
     def get_policy(obs):
         logits = logits_net(obs)
         return Categorical(logits=logits)
 
-    # action selection function (outputs int actions, sampled from policy)
+    # make action selection function (outputs int actions, sampled from policy)
     def get_action(obs):
         return get_policy(obs).sample().item()
 
-    # loss function whose gradient, for the right data, is policy gradient
+    # make loss function whose gradient, for the right data, is policy gradient
     def compute_loss(obs, act, weights):
         logp = get_policy(obs).log_prob(act)
         return -(logp * weights).mean()
 
+    # make optimizer
+    optimizer = Adam(logits_net.parameters(), lr=lr)
+
     # for training policy
-    def train_one_epoch(epoch_number):
+    def train_one_epoch():
         # make some empty lists for logging.
         batch_obs = []          # for observations
         batch_acts = []         # for actions
-        batch_weights = []      # for R(tau) weighting in policy gradient
+        batch_weights = []      # for reward-to-go weighting in policy gradient
         batch_rets = []         # for measuring episode returns
         batch_lens = []         # for measuring episode lengths
 
@@ -73,13 +74,11 @@ def train(env_name='CartPole-v0', hidden_sizes=[8], lr=0.005,
         # render first episode of each epoch
         finished_rendering_this_epoch = False
 
-        # keep track of loops
-        n = 0
-
         # collect experience by acting in the environment with current policy
         while True:
+
             # rendering
-            if (not finished_rendering_this_epoch) and render and epoch_number > render_treshold * epochs:
+            if (not finished_rendering_this_epoch) and render:
                 env.render()
 
             # save obs
@@ -87,28 +86,23 @@ def train(env_name='CartPole-v0', hidden_sizes=[8], lr=0.005,
 
             # act in the environment
             act = get_action(torch.as_tensor(obs, dtype=torch.float32))
-            obs, rew, done, _ = env.step(act, n)
+            obs, rew, done, _ = env.step(act)
 
             # save action, reward
             batch_acts.append(act)
             ep_rews.append(rew)
 
-            n += 1
-
-            # change to true in debugger to end
-            end_plz = False
-            if done or end_plz:
+            if done:
                 # if episode is over, record info about episode
                 ep_ret, ep_len = sum(ep_rews), len(ep_rews)
                 batch_rets.append(ep_ret)
                 batch_lens.append(ep_len)
 
-                # the weight for each logprob(a|s) is R(tau)
-                batch_weights += [ep_ret] * ep_len
+                # the weight for each logprob(a_t|s_t) is reward-to-go from t
+                batch_weights += list(reward_to_go(ep_rews))
 
                 # reset episode-specific variables
-                obs, done, ep_rews = env.reset(), False, []                
-                n = 0
+                obs, done, ep_rews = env.reset(), False, []
 
                 # won't render again this epoch
                 finished_rendering_this_epoch = True
@@ -129,48 +123,16 @@ def train(env_name='CartPole-v0', hidden_sizes=[8], lr=0.005,
 
     # training loop
     for i in range(epochs):
-        batch_loss, batch_rets, batch_lens = train_one_epoch(i)
+        batch_loss, batch_rets, batch_lens = train_one_epoch()
         print('epoch: %3d \t loss: %.3f \t return: %.3f \t ep_len: %.3f'%
                 (i, batch_loss, np.mean(batch_rets), np.mean(batch_lens)))
 
-    return logits_net          
-
-def test(logits_net):    
-    env = CartPoleEnv()
-    # reset episode-specific variables
-    obs = env.reset()       # first obs comes from starting distribution
-    done = False            # signal from environment that episode is over
-
-    # collect experience by acting in the environment with current policy
-    while True:
-        # rendering
-        env.render()
-
-        # act in the environment
-        act = Categorical(logits=logits_net(torch.as_tensor(obs, dtype=torch.float32))).sample().item()
-        obs, _, done, _ = env.step(act)
-
-        if done:
-            #break  
-            obs = env.reset()
-
 if __name__ == '__main__':
-    inp = input("Want to test run an older version or train a new one (o/n): ")
-    if (inp == 'o'):
-        logits_net = torch.load('logits_net')
-        test(logits_net)
-
-    elif (inp == 'n'):    
-        import argparse
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--env_name', '--env', type=str, default='CartPole-v0')
-        parser.add_argument('--render', action='store_true')
-        parser.add_argument('--lr', type=float, default=1e-2)
-        args = parser.parse_args()
-        print('\nUsing simplest formulation of policy gradient.\n')
-        logits_net = train(env_name=args.env_name, lr=args.lr, render=True)
-
-        inp = input("Want to save the trained network (y/n): ")
-        if (inp == 'y' or inp == 'Y'):
-            #save to file        
-            torch.save(logits_net, 'logits_net')
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--env_name', '--env', type=str, default='CartPole-v0')
+    parser.add_argument('--render', action='store_true')
+    parser.add_argument('--lr', type=float, default=1e-2)
+    args = parser.parse_args()
+    print('\nUsing reward-to-go formulation of policy gradient.\n')
+    train(env_name=args.env_name, render=args.render, lr=args.lr)

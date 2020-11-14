@@ -62,7 +62,7 @@ class CartPoleEnv(gym.Env):
     def __init__(self):
         self.gravity = 9.8
         self.masscart = 1.0
-        self.masspole = 0.1
+        self.masspole = 0.2
         self.total_mass = (self.masspole + self.masscart)
         self.length = 0.5  # actually half the pole's length
         self.polemass_length = (self.masspole * self.length)
@@ -91,14 +91,21 @@ class CartPoleEnv(gym.Env):
 
         self.steps_beyond_done = None
         
-        self.reward_range = (-float('inf'), float('inf'))
-        self.max_steps = 10000
+        self.reward_range = (-float('inf'), 1000.0)
+        
+        self.max_step_limit_on = False
+        self.max_steps = 1000
+        
+        # Boost to learning by defining max steps to get up from down position
+        self.max_steps_to_get_up = 100
 
         # Pole starting position 0 = up, 1 = down
         self.starting_position = 1
+        
+        self.has_been_up = not self.starting_position
 
         # Reward model 0 = one or zero, 1 = pole angle based, 2 / 3 = test
-        self.reward_model = 7
+        self.reward_model = 8
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -177,12 +184,22 @@ class CartPoleEnv(gym.Env):
             # Test
             elif self.reward_model == 7: 
                 theta_diff = np.abs(self.state[2])
-                reward = 1.0 / np.abs(self.state[3])
-                if (theta_diff > np.pi / 2.0):                    
-                    reward = -0.01
+                reward = np.abs(np.cos(theta_diff) * 2.0 * self.length)
+                if (theta_diff > np.pi / 2.0):
+                    reward = -reward
+                if (np.abs(self.state[0]) > 0.9 * self.x_threshold):                    
+                    reward = -100.0
+
+                    
+            # Test
+            elif self.reward_model == 8: 
+                theta_diff = np.abs(self.state[2])
+                x = np.abs(self.state[0])
+                #reward = np.cos(theta_diff) - np.power(x, 2)
+                reward = np.pi - theta_diff - 0.01 * np.power(x, 2)
 
         else:
-            if self.steps_beyond_done == 0:
+            if self.steps_beyond_done > 0:
                 """
                 logger.warn(
                 "You are calling 'step()' even though this "
@@ -223,15 +240,34 @@ class CartPoleEnv(gym.Env):
 
         self.state = (x, x_dot, theta, theta_dot)
 
+        theta_reward_treshold_rad =  theta_reward_treshold_deg * 2 * math.pi / 360
+        theta_diff = np.abs(theta)
+        if (not self.has_been_up and theta_diff < theta_reward_treshold_rad):
+            self.has_been_up = True
+        
+        hit_wall = bool(x < -self.x_threshold or x > self.x_threshold)
+
         done = bool(
-            x < -self.x_threshold
-            or x > self.x_threshold
+            hit_wall
+            or (self.max_step_limit_on and n > self.max_steps)
             #or n > self.max_steps
             #or theta < -self.theta_threshold_radians
             #or theta > self.theta_threshold_radians
         )
 
+        """
+        or (self.starting_position == 1 
+            and ((n > self.max_steps_to_get_up
+                and not self.has_been_up) # has not been up yet
+                or (self.has_been_up         # has been up and falls down
+                    and theta_diff < theta_reward_treshold_rad)))"""
+
         reward = self.reward(done)
+
+        """
+        if (hit_wall):
+            reward = reward - 1000000
+        """
         return np.array(self.state), reward, done, {}
 
     def reset(self):
@@ -239,6 +275,7 @@ class CartPoleEnv(gym.Env):
         if (self.starting_position == 1): # down
             self.state[2] = self.state[2] + np.pi
         self.steps_beyond_done = None
+        self.has_been_up = not self.starting_position
         return np.array(self.state)
 
     def render(self, mode='human'):
