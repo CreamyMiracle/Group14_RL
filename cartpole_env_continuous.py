@@ -1,6 +1,6 @@
 """
 Classic cart-pole system implemented by Rich Sutton et al.
-Copied from http://incompleteideas.net/sutton/book/code/pole.c
+Base copied from http://incompleteideas.net/sutton/book/code/pole.c
 permalink: https://perma.cc/C9ZM-652R
 """
 
@@ -11,41 +11,11 @@ from gym.utils import seeding
 import numpy as np
 
 
-class Obstacle:
-    """
-    Description:
-        An obstacles that causes heavy penalties when hit by the
-        cartpole pole
-    """
-    def __init__(self, left, right, top, bottom):
-        self.left = left
-        self.right = right
-        self.top = top
-        self.bottom = bottom
-        self.color = [1.0, 0.0, 0.0]
-
-    def set_color(self, r, g, b):
-        self.color = [r, g, b]
-
-    def get_geom(self):
-        from gym.envs.classic_control import rendering
-        obstacle = rendering.FilledPolygon([(self.left, self.bottom), (self.left, self.top), 
-        (self.right, self.top), (self.right, self.bottom)])
-        obstacle.set_color(self.color[0], self.color[1], self.color[2])
-        return obstacle
-
-    def hit(self, point):
-        x, y = point
-        if (x < self.right and x > self.left):
-            if (y < self.top and y > self.bottom):
-                return True
-        return False
-
-class CartPoleEnv(gym.Env):
+class CartPoleEnvContinuous(gym.Env):
     """
     Description:
         A pole is attached by an un-actuated joint to a cart, which moves along
-        a frictionless track. The pendulum starts upright, and the goal is to
+        a frictionless track. The pendulum starts downright, and the goal is to
         prevent it from falling over by increasing and reducing the cart's
         velocity.
     Source:
@@ -59,10 +29,9 @@ class CartPoleEnv(gym.Env):
         2       Pole Angle                -0.418 rad (-24 deg)    0.418 rad (24 deg)
         3       Pole Angular Velocity     -Inf                    Inf
     Actions:
-        Type: Discrete(2)
+        Type: Continuous
         Num   Action
-        0     Push cart to the left
-        1     Push cart to the right
+        -1 to 1, how much of force magnitude is applied        
         Note: The amount the velocity that is reduced or increased is not
         fixed; it depends on the angle the pole is pointing. This is because
         the center of gravity of the pole increases the amount of energy needed
@@ -72,9 +41,9 @@ class CartPoleEnv(gym.Env):
     Starting State:
         All observations are assigned a uniform random value in [-0.05..0.05]
     Episode Termination:
-        Pole Angle is more than 12 degrees.
         Cart Position is more than 2.4 (center of the cart reaches the edge of
         the display).
+        Possibly if cartpole falls from upward position below center line.
         Episode length is greater than 200.
         Solved Requirements:
         Considered solved when the average return is greater than or equal to
@@ -84,9 +53,20 @@ class CartPoleEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': 50
-    }    
+    }
 
-    def __init__(self):
+    """
+    kill_on_fall : changes done to true if pole has been upward and falls beyond
+                   center line
+    reward_model : 
+        0: default reward 1.0
+        1: Reward based on reward regions
+           Give 3 times reward if pole is 30deg from up position and
+           another 3 times reward if cart is within half the distance of
+           track from center        
+    """
+
+    def __init__(self, kill_on_fall=True, reward_model=0):
         self.gravity = 9.8
         self.masscart = 1.0
         self.masspole = 0.1
@@ -97,9 +77,12 @@ class CartPoleEnv(gym.Env):
         self.tau = 0.02  # seconds between state updates
         self.kinematics_integrator = 'euler'
 
-        # Angle at which to fail the episode
-        self.theta_threshold_radians = 12 * 2 * math.pi / 360
+        # Angle and x at which to fail the episode
+        self.theta_threshold_radians = np.finfo(np.float32).max
         self.x_threshold = 2.4
+
+        # What is considered upward position
+        self.upward_position = np.pi / 3.0  # 30 deg
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -109,7 +92,8 @@ class CartPoleEnv(gym.Env):
                          np.finfo(np.float32).max],
                         dtype=np.float32)
 
-        self.action_space = spaces.Discrete(2)
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(1, ), dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
         self.seed()
@@ -117,27 +101,28 @@ class CartPoleEnv(gym.Env):
         self.state = None
 
         self.steps_beyond_done = None
-        
-        # Pole starting position 0 = up, 1 = down
-        self.starting_position = 1 
+
+        self.has_been_up = False
+
+        self.kill_on_fall = kill_on_fall
+        self.reward_model = reward_model
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
     def step(self, action):
-        err_msg = "%r (%s) invalid" % (action, type(action))
-        assert self.action_space.contains(action), err_msg
-        
         x, x_dot, theta, theta_dot = self.state
-        force = self.force_mag if action == 1 else -self.force_mag
+        force = action[0] * self.force_mag
         costheta = math.cos(theta)
         sintheta = math.sin(theta)
 
         # For the interested reader:
         # https://coneural.org/florian/papers/05_cart_pole.pdf
-        temp = (force + self.polemass_length * theta_dot ** 2 * sintheta) / self.total_mass
-        thetaacc = (self.gravity * sintheta - costheta * temp) / (self.length * (4.0 / 3.0 - self.masspole * costheta ** 2 / self.total_mass))
+        temp = (force + self.polemass_length * theta_dot **
+                2 * sintheta) / self.total_mass
+        thetaacc = (self.gravity * sintheta - costheta * temp) / (self.length *
+                                                                  (4.0 / 3.0 - self.masspole * costheta ** 2 / self.total_mass))
         xacc = temp - self.polemass_length * thetaacc * costheta / self.total_mass
 
         if self.kinematics_integrator == 'euler':
@@ -153,17 +138,36 @@ class CartPoleEnv(gym.Env):
 
         self.state = (x, x_dot, theta, theta_dot)
 
+        theta_norm = np.abs(theta) % (2.0 * np.pi)
+        # Keep track of if pole has been upward or not
+        if (theta_norm < self.upward_position and not self.has_been_up):
+            self.has_been_up = True
+
+        has_been_up_and_fallen = np.abs(theta) > np.pi and self.has_been_up
+
         done = bool(
             x < -self.x_threshold
             or x > self.x_threshold
-            or theta < -self.theta_threshold_radians
-            or theta > self.theta_threshold_radians
+            or (self.kill_on_fall and has_been_up_and_fallen)
         )
 
         if not done:
-            reward = 1.0
+            if (self.reward_model == 0):
+                reward = 1.0
+            elif (self.reward_model == 1):
+                # Reward based on reward regions
+                # Give 3 times reward if pole is 30deg from up position and
+                # another 3 times reward if cart is within half the distance of
+                # track from center
+                reward = 1.0
+                if (theta_norm < self.upward_position):
+                    reward *= 3.0
+                if (theta_norm < self.x_threshold / 2.0):
+                    reward *= 3.0
+            else:
+                reward = 1.0
+
         elif self.steps_beyond_done is None:
-            # Pole just fell!
             self.steps_beyond_done = 0
             reward = 1.0
         else:
@@ -181,9 +185,9 @@ class CartPoleEnv(gym.Env):
 
     def reset(self):
         self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
-        if (self.starting_position == 1): # down
-            self.state[2] = self.state[2] + np.pi
+        self.state[2] += np.pi
         self.steps_beyond_done = None
+        self.has_been_up = False
         return np.array(self.state)
 
     def render(self, mode='human'):
@@ -207,7 +211,8 @@ class CartPoleEnv(gym.Env):
             self.carttrans = rendering.Transform()
             cart.add_attr(self.carttrans)
             self.viewer.add_geom(cart)
-            l, r, t, b = -polewidth / 2, polewidth / 2, polelen - polewidth / 2, -polewidth / 2
+            l, r, t, b = -polewidth / 2, polewidth / \
+                2, polelen - polewidth / 2, -polewidth / 2
             pole = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
             pole.set_color(.8, .6, .4)
             self.poletrans = rendering.Transform(translation=(0, axleoffset))
@@ -236,7 +241,8 @@ class CartPoleEnv(gym.Env):
 
         # Edit the pole polygon vertex
         pole = self._pole_geom
-        l, r, t, b = -polewidth / 2, polewidth / 2, polelen - polewidth / 2, -polewidth / 2
+        l, r, t, b = -polewidth / 2, polewidth / \
+            2, polelen - polewidth / 2, -polewidth / 2
         pole.v = [(l, b), (l, t), (r, t), (r, b)]
 
         x = self.state
@@ -250,16 +256,3 @@ class CartPoleEnv(gym.Env):
         if self.viewer:
             self.viewer.close()
             self.viewer = None
-            
-            
-Env = CartPoleEnv()
-Env.reset()
-for i in range(1000):
-    Env.render()
-    action = 1
-    if Env.state[2] < 0 and Env.state[3] < 0 and Env.state[1] > 0:
-        action = 0
-    Env.step(action)
-Env.close()    
-       
-        

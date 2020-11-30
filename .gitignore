@@ -110,6 +110,8 @@ ENV/
 env.bak/
 venv.bak/
 
+trash/
+
 # Spyder project settings
 .spyderproject
 .spyproject
