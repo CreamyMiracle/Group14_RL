@@ -66,7 +66,7 @@ class CartPoleEnvContinuous(gym.Env):
            track from center        
     """
 
-    def __init__(self, kill_on_fall=True, reward_model=0):
+    def __init__(self, kill_on_fall=True, reward_model=0, convert_theta_to_cos_sin=False):
         self.gravity = 9.8
         self.masscart = 1.0
         self.masspole = 0.1
@@ -83,6 +83,9 @@ class CartPoleEnvContinuous(gym.Env):
 
         # What is considered upward position
         self.upward_position = np.pi / 3.0  # 30 deg
+
+        # Convert theta value to it's sin and cos in state vector
+        self.convert_theta_to_cos_sin = convert_theta_to_cos_sin
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -106,6 +109,15 @@ class CartPoleEnvContinuous(gym.Env):
 
         self.kill_on_fall = kill_on_fall
         self.reward_model = reward_model
+
+    def get_state_dim(self):
+        state_dim = self.observation_space.shape[0]
+        if (self.convert_theta_to_cos_sin):
+            state_dim += 1
+        return state_dim
+
+    def get_action_dim(self):
+        return self.action_space.shape[0]
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -181,14 +193,27 @@ class CartPoleEnvContinuous(gym.Env):
             self.steps_beyond_done += 1
             reward = 0.0
 
-        return np.array(self.state), reward, done, {}
+        state = np.array(self.state)
+        if (self.convert_theta_to_cos_sin):
+            costheta = math.cos(self.state[2])
+            sintheta = math.sin(self.state[2])
+            state = np.array(
+                [self.state[0], self.state[1], costheta, sintheta, self.state[3]])
+        return state, reward, done, {}
 
     def reset(self):
         self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
         self.state[2] += np.pi
         self.steps_beyond_done = None
         self.has_been_up = False
-        return np.array(self.state)
+
+        state = np.array(self.state)
+        if (self.convert_theta_to_cos_sin):
+            costheta = math.cos(self.state[2])
+            sintheta = math.sin(self.state[2])
+            state = np.array(
+                [self.state[0], self.state[1], costheta, sintheta, self.state[3]])
+        return state
 
     def render(self, mode='human'):
         screen_width = 600
