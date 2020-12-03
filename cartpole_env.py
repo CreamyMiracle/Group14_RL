@@ -11,13 +11,14 @@ Copied from http://incompleteideas.net/sutton/book/code/pole.c
 permalink: https://perma.cc/C9ZM-652R
 """
 
+
+
+
 import math
 import gym
 from gym import spaces, logger
 from gym.utils import seeding
 import numpy as np
-
-
 class CartPoleEnv(gym.Env):
     """
     Description:
@@ -73,7 +74,6 @@ class CartPoleEnv(gym.Env):
         self.force_mag = 10.0
         self.tau = 0.02  # seconds between state updates
         self.kinematics_integrator = 'euler'
-        
 
         # Angle at which to fail the episode
         self.theta_threshold_radians = 12 * 2 * math.pi / 360
@@ -95,12 +95,13 @@ class CartPoleEnv(gym.Env):
         self.state = None
 
         self.steps_beyond_done = None
-        
+
         self.cartheight = 30.0
         self.axle_offset = self.cartheight / 4.0
         self.potential_energy = self.pot_energy()
         self.kinetic_energy = self.kin_energy()
         self.rotational_energy = self.rot_energy()
+        self.noise_data = np.random.randn(100000)
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -117,9 +118,12 @@ class CartPoleEnv(gym.Env):
 
         # For the interested reader:
         # https://coneural.org/florian/papers/05_cart_pole.pdf
-        temp = (force + self.polemass_length * theta_dot ** 2 * sintheta) / self.total_mass
-        theta_dot_dot = (self.gravity * sintheta - costheta * temp) / (self.length * (4.0 / 3.0 - self.masspole * costheta ** 2 / self.total_mass))
-        x_dot_dot = temp - self.polemass_length * theta_dot_dot * costheta / self.total_mass
+        temp = (force + self.polemass_length * theta_dot **
+                2 * sintheta) / self.total_mass
+        theta_dot_dot = (self.gravity * sintheta - costheta * temp) / (
+            self.length * (4.0 / 3.0 - self.masspole * costheta ** 2 / self.total_mass))
+        x_dot_dot = temp - self.polemass_length * \
+            theta_dot_dot * costheta / self.total_mass
 
         if self.kinematics_integrator == 'euler':
             x = x + self.tau * x_dot
@@ -162,8 +166,17 @@ class CartPoleEnv(gym.Env):
         self.kin_energy()
         self.rot_energy()
         reward = self.reward()
-        
-        return np.array(self.state), reward, done, {}
+
+        return np.array(self.noise_state()), reward, done, {}
+
+    def noise_state(self):
+        x = self.state[0] + np.random.choice(self.noise_data*0.1)
+        x_dot = self.state[1] + np.random.choice(self.noise_data*0.1)
+        theta = self.state[2] + np.random.choice(self.noise_data*0.1)
+        theta_dot = self.state[3] + np.random.choice(self.noise_data*0.1)
+
+        noise_state = (x, x_dot, theta, theta_dot)
+        return noise_state
 
     def reset(self):
         self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
@@ -180,20 +193,22 @@ class CartPoleEnv(gym.Env):
         polewidth = 10.0
         polelen = scale * (2 * self.length)
         cartwidth = 50.0
-        
 
         if self.viewer is None:
             from gym.envs.classic_control import rendering
             self.viewer = rendering.Viewer(screen_width, screen_height)
-            l, r, t, b = -cartwidth / 2, cartwidth / 2, self.cartheight / 2, -self.cartheight / 2
+            l, r, t, b = -cartwidth / 2, cartwidth / \
+                2, self.cartheight / 2, -self.cartheight / 2
             cart = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
             self.carttrans = rendering.Transform()
             cart.add_attr(self.carttrans)
             self.viewer.add_geom(cart)
-            l, r, t, b = -polewidth / 2, polewidth / 2, polelen - polewidth / 2, -polewidth / 2
+            l, r, t, b = -polewidth / 2, polewidth / \
+                2, polelen - polewidth / 2, -polewidth / 2
             pole = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
             pole.set_color(.8, .6, .4)
-            self.poletrans = rendering.Transform(translation=(0, self.axle_offset))
+            self.poletrans = rendering.Transform(
+                translation=(0, self.axle_offset))
             pole.add_attr(self.poletrans)
             pole.add_attr(self.carttrans)
             self.viewer.add_geom(pole)
@@ -213,7 +228,8 @@ class CartPoleEnv(gym.Env):
 
         # Edit the pole polygon vertex
         pole = self._pole_geom
-        l, r, t, b = -polewidth / 2, polewidth / 2, polelen - polewidth / 2, -polewidth / 2
+        l, r, t, b = -polewidth / 2, polewidth / \
+            2, polelen - polewidth / 2, -polewidth / 2
         pole.v = [(l, b), (l, t), (r, t), (r, b)]
 
         x = self.state
@@ -227,7 +243,7 @@ class CartPoleEnv(gym.Env):
         if self.viewer:
             self.viewer.close()
             self.viewer = None
-    
+
     def pot_energy(self):
         if self.state is not None:
             theta_diff = self.state[2]
@@ -236,7 +252,7 @@ class CartPoleEnv(gym.Env):
             self.potential_energy = self.masspole*self.gravity*corr_height
         else:
             self.potential_energy = 0.0
-            
+
     def kin_energy(self):
         if self.state is not None:
             m_total = self.masscart + self.masspole
@@ -244,7 +260,7 @@ class CartPoleEnv(gym.Env):
             self.kinematic_energy = 0.5*m_total*vel*vel
         else:
             self.kinematic_energy = 0.0
-            
+
     def rot_energy(self):
         if self.state is not None:
             I_total = (1.0/3.0) * self.masspole * self.length * self.length
@@ -252,25 +268,21 @@ class CartPoleEnv(gym.Env):
             self.rotational_energy = 0.5*I_total*ang_vel*ang_vel
         else:
             self.rotational_energy = 0.0
-            
-    def reward(self):      
+
+    def reward(self):
         plus = self.potential_energy*self.potential_energy
         minus = self.kinematic_energy*self.kinematic_energy
         minus = minus*100.0
         plus = plus*100.0
-    
+
         if plus > 100:
             plus = 0
         elif plus < 0:
             plus = 0
-            
+
         if minus < -100:
             minus = -100
         elif minus > 0:
             minus = 0
-        
+
         return plus
-        
-        
-    
-            
