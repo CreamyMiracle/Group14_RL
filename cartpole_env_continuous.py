@@ -66,7 +66,7 @@ class CartPoleEnvContinuous(gym.Env):
            track from center        
     """
 
-    def __init__(self, kill_on_fall=True, reward_model=0, convert_theta_to_cos_sin=False):
+    def __init__(self, kill_on_fall=True, reward_model=0, convert_theta_to_cos_sin=False, add_noise_to_state=False, randomise_reset_state=False):
         self.gravity = 9.8
         self.masscart = 1.0
         self.masspole = 0.1
@@ -110,6 +110,10 @@ class CartPoleEnvContinuous(gym.Env):
         self.kill_on_fall = kill_on_fall
         self.reward_model = reward_model
 
+        self.add_noise_to_state = add_noise_to_state
+
+        self.randomise_reset_state = randomise_reset_state
+
     def get_state_dim(self):
         state_dim = self.observation_space.shape[0]
         if (self.convert_theta_to_cos_sin):
@@ -123,9 +127,29 @@ class CartPoleEnvContinuous(gym.Env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
+    def get_state_vector(self):
+        if (self.convert_theta_to_cos_sin):
+            costheta = math.cos(self.state[2])
+            sintheta = math.sin(self.state[2])
+            state_vector = np.array(
+                [self.state[0], self.state[1], costheta, sintheta, self.state[3]])
+        else:
+            state_vector = np.array(self.state)
+
+        if (self.add_noise_to_state):
+            noise = np.random.normal(0, 0.01, len(state_vector))
+            state_vector += noise
+
+        return state_vector
+
     def step(self, action):
         x, x_dot, theta, theta_dot = self.state
         force = action[0] * self.force_mag
+        """
+        rand = np.random.random()
+        if (rand > 0.95):
+            force = force - 10
+        """
         costheta = math.cos(theta)
         sintheta = math.sin(theta)
 
@@ -193,27 +217,20 @@ class CartPoleEnvContinuous(gym.Env):
             self.steps_beyond_done += 1
             reward = 0.0
 
-        state = np.array(self.state)
-        if (self.convert_theta_to_cos_sin):
-            costheta = math.cos(self.state[2])
-            sintheta = math.sin(self.state[2])
-            state = np.array(
-                [self.state[0], self.state[1], costheta, sintheta, self.state[3]])
-        return state, reward, done, {}
+        return self.get_state_vector(), reward, done, {}
 
     def reset(self):
-        self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
+        if (self.randomise_reset_state):
+            self.state = self.np_random.uniform(low=-1.0, high=1.0, size=(4,))
+        else:
+            self.state = self.np_random.uniform(
+                low=-0.05, high=0.05, size=(4,))
+
         self.state[2] += np.pi
         self.steps_beyond_done = None
         self.has_been_up = False
 
-        state = np.array(self.state)
-        if (self.convert_theta_to_cos_sin):
-            costheta = math.cos(self.state[2])
-            sintheta = math.sin(self.state[2])
-            state = np.array(
-                [self.state[0], self.state[1], costheta, sintheta, self.state[3]])
-        return state
+        return self.get_state_vector()
 
     def render(self, mode='human'):
         screen_width = 600

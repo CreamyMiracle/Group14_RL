@@ -183,7 +183,7 @@ def main():
     random_seed = None
     #############################################
 
-    env = CartPoleEnvContinuous(True, 1, True)
+    env = CartPoleEnvContinuous(True, 1, True, False)
     state_dim = env.get_state_dim()
     action_dim = env.get_action_dim()
 
@@ -267,7 +267,7 @@ def main():
 
 
 def simulate(filename):
-    env = CartPoleEnvContinuous(False, 1, True)
+    env = CartPoleEnvContinuous(False, 1, True, False)
     action_std = 0.5
     state_dim = env.get_state_dim()
     action_dim = env.get_action_dim()
@@ -297,4 +297,4 @@ if __name__ == '__main__':
     if (train):
         main()
     else:
-        simulate('models/PPO_continuous_solved_1216.pth')
+        simulate('models/PPO_continuous_solved_1436.pth')
