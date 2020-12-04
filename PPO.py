@@ -10,7 +10,7 @@ from torch.distributions import MultivariateNormal
 import gym
 import numpy as np
 from cartpole_env_continuous import CartPoleEnvContinuous
-import matplotlib.pyplot as plt
+from plot_to_file import plot_to_file
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -49,14 +49,32 @@ class ActorCritic(nn.Module):
             nn.Tanh()
         )
 
-        # critic
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
             nn.Linear(64, 32),
             nn.Tanh(),
-            nn.Linear(32, 1)
+            nn.Linear(32, action_dim)
         )
+
+        """ smaller boi
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, 12),
+            nn.Tanh(),
+            nn.Linear(12, 24),
+            nn.Tanh(),
+            nn.Linear(24, action_dim),
+            nn.Tanh()
+        )
+
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, 12),
+            nn.Tanh(),
+            nn.Linear(12, 24),
+            nn.Tanh(),
+            nn.Linear(24, action_dim),
+        )
+        """
         self.action_var = torch.full(
             (action_dim,), action_std*action_std).to(device)
 
@@ -114,7 +132,6 @@ class PPO:
         self.MseLoss = nn.MSELoss()
 
     def select_action(self, state, memory):
-        # state = torch.FloatTensor(state.reshape(1, -1)).to(device)
         return self.policy_old.act(state, memory).cpu().data.numpy().flatten()
 
     def update(self, memory):
@@ -184,9 +201,9 @@ def main():
     random_seed = None
     #############################################
 
-    env = CartPoleEnvContinuous(True, 1)
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    env = CartPoleEnvContinuous(True, 1, True, False)
+    state_dim = env.get_state_dim()
+    action_dim = env.get_action_dim()
 
     if random_seed:
         print("Random Seed: {}".format(random_seed))
@@ -241,13 +258,7 @@ def main():
             if n == 0:
                 n = log_interval
             memory.plot_y.append(int((running_reward/n)))
-            plt.figure()
-            plt.plot(memory.plot_x, memory.plot_y)
-            plt.title("Rewards over time (PPO)")
-            plt.xlabel("Epoch")
-            plt.ylabel("Reward")
-            plt.savefig('plots/PPO_epoc_reward')
-            plt.close()
+            plot_to_file("PPO", memory.plot_x, memory.plot_y)
             break
 
         # save every 500 episodes
@@ -270,20 +281,14 @@ def main():
 
         # plot saving every n episodes
         if i_episode % (10 * log_interval) == 0:
-            plt.figure()
-            plt.plot(memory.plot_x, memory.plot_y)
-            plt.title("Rewards over time (PPO)")
-            plt.xlabel("Epoch")
-            plt.ylabel("Reward")
-            plt.savefig('plots/PPO_epoc_reward')
-            plt.close()
+            plot_to_file("PPO", memory.plot_x, memory.plot_y)
 
 
 def simulate(filename):
-    env = CartPoleEnvContinuous(False, 1)
+    env = CartPoleEnvContinuous(False, 1, True, False)
     action_std = 0.5
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    state_dim = env.get_state_dim()
+    action_dim = env.get_action_dim()
 
     # reset episode-specific variables
     obs = env.reset()
@@ -310,4 +315,4 @@ if __name__ == '__main__':
     if (train):
         main()
     else:
-        simulate('models/PPO_continuous_solved_1873.pth')
+        simulate('models/PPO_continuous_solved_1436.pth')
