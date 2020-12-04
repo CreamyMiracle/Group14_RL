@@ -66,7 +66,7 @@ class CartPoleEnvContinuous(gym.Env):
            track from center        
     """
 
-    def __init__(self, kill_on_fall=True, reward_model=0, convert_theta_to_cos_sin=False, add_noise_to_state=False, randomise_reset_state=False):
+    def __init__(self, kill_on_fall=True, reward_model=0, convert_theta_to_cos_sin=False, add_noise_to_state=False, randomise_reset_state=False, poke_cart=False):
         self.gravity = 9.8
         self.masscart = 1.0
         self.masspole = 0.1
@@ -114,6 +114,10 @@ class CartPoleEnvContinuous(gym.Env):
 
         self.randomise_reset_state = randomise_reset_state
 
+        # Robustness check
+        self.poked = 0
+        self.poke_cart = poke_cart
+
     def get_state_dim(self):
         state_dim = self.observation_space.shape[0]
         if (self.convert_theta_to_cos_sin):
@@ -145,11 +149,15 @@ class CartPoleEnvContinuous(gym.Env):
     def step(self, action):
         x, x_dot, theta, theta_dot = self.state
         force = action[0] * self.force_mag
-        """
-        rand = np.random.random()
-        if (rand > 0.95):
-            force = force - 10
-        """
+
+        # Check robustness by "poking" the cart by max force
+        if (self.poke_cart):
+            if (np.random.random() > 0.95):
+                self.poked = 20  # self.force_mag
+                force = force - self.poked
+            else:
+                self.poked = 0
+
         costheta = math.cos(theta)
         sintheta = math.sin(theta)
 
@@ -280,6 +288,19 @@ class CartPoleEnvContinuous(gym.Env):
 
         if self.state is None:
             return None
+
+        if (self.poked != 0):
+            from gym.envs.classic_control import rendering
+            print('poked: {}N'.format(self.poked))
+            dx = cartwidth / 2
+            l = 45
+            h = 30
+            arrow = rendering.FilledPolygon(
+                [(dx, 0), (dx + h/2, l/3), (dx + h/2, h/4), (dx + l, h/4), (dx + l, -h/4), (dx + l/3, -h/4), (dx + l/3, -h/2)])
+            # arrow.add_attr(self.poletrans)
+            arrow.add_attr(self.carttrans)
+            arrow.set_color(1.0, 0.0, 0.0)
+            self.viewer.add_onetime(arrow)
 
         # Edit the pole polygon vertex
         pole = self._pole_geom

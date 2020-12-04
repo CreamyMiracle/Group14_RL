@@ -49,14 +49,32 @@ class ActorCritic(nn.Module):
             nn.Tanh()
         )
 
-        # critic
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
             nn.Linear(64, 32),
             nn.Tanh(),
-            nn.Linear(32, 1)
+            nn.Linear(32, action_dim)
         )
+
+        """ smaller boi
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, 12),
+            nn.Tanh(),
+            nn.Linear(12, 24),
+            nn.Tanh(),
+            nn.Linear(24, action_dim),
+            nn.Tanh()
+        )
+
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, 12),
+            nn.Tanh(),
+            nn.Linear(12, 24),
+            nn.Tanh(),
+            nn.Linear(24, action_dim),
+        )
+        """
         self.action_var = torch.full(
             (action_dim,), action_std*action_std).to(device)
 
