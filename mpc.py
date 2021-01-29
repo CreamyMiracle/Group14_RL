@@ -3,6 +3,11 @@ import numpy as np
 import osqp
 import scipy.sparse as sparse
 
+'''
+The original author of this class is Philip Zucker. He presented this method of using model predictive controller in these articles: 
+https://www.philipzucker.com/model-predictive-control-of-cartpole-in-openai-gym-using-osqp/
+http://www.philipzucker.com/osqp-sparsegrad-fast-model-predictive-control-python-inverted-pendulum/
+'''
 
 class MPC():
     def __init__(self, x0, v0, theta0, thetadot0):

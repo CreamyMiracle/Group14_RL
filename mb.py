@@ -16,7 +16,8 @@ try:
 
     mpc = MPC(0.5, 0, start_theta, 0)
     action = 0
-    # time.sleep(5)
+    env.render()
+    time.sleep(5)
 
     for i_episode in range(1):
 
